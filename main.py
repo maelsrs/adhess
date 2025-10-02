@@ -1,10 +1,12 @@
-import random
+﻿import random
 import sys
 import pygame
 
 SCREEN_WIDTH, SCREEN_HEIGHT = 960, 540
+SCREEN_CENTER = pygame.Vector2(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
 BACKGROUND_COLOR = (18, 18, 24)
 GRID_COLOR = (32, 32, 42)
+GRID_SPACING = 64
 
 
 class Character:
@@ -49,6 +51,7 @@ class Game:
         self.running = True
 
         self.player = Player((SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2))
+        self.camera_offset = pygame.Vector2()
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -61,12 +64,25 @@ class Game:
     def update(self, dt):
         pressed = pygame.key.get_pressed()
         self.player.update(dt, pressed)
+        self.camera_offset = self.player.position - SCREEN_CENTER
+
+    def draw_grid(self):
+        start_x = int(-self.camera_offset.x % GRID_SPACING)
+        start_y = int(-self.camera_offset.y % GRID_SPACING)
+        width, height = self.screen.get_size()
+
+        for x in range(start_x, width, GRID_SPACING):
+            pygame.draw.line(self.screen, GRID_COLOR, (x, 0), (x, height))
+
+        for y in range(start_y, height, GRID_SPACING):
+            pygame.draw.line(self.screen, GRID_COLOR, (0, y), (width, y))
 
     def draw(self):
         self.screen.fill(BACKGROUND_COLOR)
+        self.draw_grid()
 
-        # draw player
-        pygame.draw.circle(self.screen, (200, 200, 200), self.player.position, 10)
+        player_screen_pos = self.player.position - self.camera_offset
+        pygame.draw.circle(self.screen, (200, 200, 200), player_screen_pos, 10)
 
         pygame.display.flip()
 
@@ -84,6 +100,7 @@ class Game:
 def main():
     game = Game()
     game.run()
+
 
 if __name__ == "__main__":
     main()

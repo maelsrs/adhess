@@ -8,6 +8,26 @@ SCREEN_WIDTH, SCREEN_HEIGHT = 1280, 720
 SCREEN_CENTER = pygame.Vector2(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
 BACKGROUND_COLOR = (22, 22, 28)
 
+PLAYER_ATTACK_DURATION = 0.28
+PLAYER_ATTACK_COOLDOWN = 0.22
+PLAYER_DASH_DURATION = 0.18
+PLAYER_DASH_COOLDOWN = 0.55
+PLAYER_WALK_FPS = 10
+PLAYER_ATTACK_DAMAGE = 50
+PLAYER_ATTACK_REACH = 52
+PLAYER_ATTACK_RADIUS = 40
+PLAYER_MOVE_SPEED = 220
+PLAYER_DASH_SPEED = 620
+PLAYER_DAMAGE_FLASH_DURATION = 0.3
+
+ENEMY_WALK_FPS = 8
+ENEMY_ATTACK_DURATION = 0.35
+ENEMY_HURT_DURATION = 0.25
+ENEMY_ATTACK_COOLDOWN = 0.8
+ENEMY_ATTACK_DAMAGE = 12
+ENEMY_MOVE_SPEED = 90
+
+
 def vector_to_direction_index(vector: pygame.Vector2) -> int:
     if vector.length_squared() == 0:
         return 0
@@ -16,65 +36,123 @@ def vector_to_direction_index(vector: pygame.Vector2) -> int:
         return 2 if x > 0 else 1
     return 0 if y >= 0 else 3
 
+def load_directional_frames(
+    root: Path,
+    prefix: str,
+    frame_count: int,
+    frames_per_direction: int,
+    scale: float = 1.0,
+    direction_order: list[int] | None = None,
+) -> list[list[pygame.Surface]]:
+    frames: list[pygame.Surface] = []
+    for index in range(frame_count):
+        image_path = root / f"{prefix}{index:03d}.png"
+        surface = pygame.image.load(str(image_path)).convert_alpha()
+        if scale != 1.0:
+            width = max(1, int(surface.get_width() * scale))
+            height = max(1, int(surface.get_height() * scale))
+            surface = pygame.transform.smoothscale(surface, (width, height))
+        frames.append(surface)
 
-def load_directional_frames(root: Path, prefix: str, scale: float = 1.0) -> list[list[pygame.Surface]]:
-    frames = [
-        pygame.image.load(str(root / f"{prefix}{index:03d}.png")).convert_alpha()
-        for index in range(32)
-    ]
-    if scale != 1.0:
-        frames = [pygame.transform.scale(frame, (int(frame.get_width() * scale), int(frame.get_height() * scale))) for frame in frames]
-    return [frames[i * 8 : (i + 1) * 8] for i in range(4)]
+    directions = [frames[i * frames_per_direction : (i + 1) * frames_per_direction] for i in range(4)]
+    if direction_order is not None:
+        directions = [directions[i] for i in direction_order]
+    return directions
+
+
+def build_idle_frames(walk_frames: list[list[pygame.Surface]]) -> list[list[pygame.Surface]]:
+    idle = []
+    for direction_frames in walk_frames:
+        idle.append([direction_frames[0]] if direction_frames else [])
+    return idle
+
+class AnimationSet:
+    def __init__(self, data: dict[str, dict]):
+        self.data = data
+        self.state = next(iter(data))
+        self.time = 0.0
+
+    def play(self, state: str, restart: bool = False):
+        if state not in self.data:
+            return
+        if state != self.state or restart:
+            self.state = state
+            self.time = 0.0
+
+    def update(self, dt: float):
+        self.time += dt
+
+    def frame(self, direction: int) -> pygame.Surface | None:
+        info = self.data[self.state]
+        frames = info["frames"][direction]
+        if not frames:
+            return None
+
+        duration = info.get("duration")
+        fps = info.get("fps", 0)
+        loop = info.get("loop", True)
+
+        if duration:
+            progress = min(1.0, self.time / duration)
+            index = min(len(frames) - 1, int(progress * len(frames)))
+            return frames[index]
+
+        if fps <= 0:
+            return frames[0]
+
+        index = int(self.time * fps)
+        if loop:
+            index %= len(frames)
+        else:
+            index = min(len(frames) - 1, index)
+        return frames[index]
+
 
 class Player:
-    def __init__(self, position: tuple[float, float], animations: dict[str, list[list[pygame.Surface]]]):
+    def __init__(self, position: tuple[float, float], animations: AnimationSet):
         self.position = pygame.Vector2(position)
         self.radius = 16
-        self.speed = 220
+        self.speed = PLAYER_MOVE_SPEED
         self.direction = pygame.Vector2(0, 1)
 
         self.max_health = 100
         self.health = self.max_health
-        self.damage_flash_duration = 0.3
         self.damage_flash = 0.0
 
-        self.animations = animations
-        self.walk_fps = 10
-        self.attack_fps = 20
-        self.frame = 0.0
-        self.state = "idle"
-
+        self.attack_reach = PLAYER_ATTACK_REACH
+        self.attack_radius = PLAYER_ATTACK_RADIUS
+        self.attack_damage = PLAYER_ATTACK_DAMAGE
+        self.attack_duration = PLAYER_ATTACK_DURATION
+        self.attack_cooldown_time = PLAYER_ATTACK_COOLDOWN
         self.attack_timer = 0.0
         self.attack_cooldown = 0.0
-        self.attack_duration = 0.28
-        self.attack_reach = 52
-        self.attack_radius = 40
-        self.attack_damage = 50
 
-        self.dash_speed = 620
-        self.dash_duration = 0.18
+        self.dash_speed = PLAYER_DASH_SPEED
+        self.dash_duration = PLAYER_DASH_DURATION
+        self.dash_cooldown_time = PLAYER_DASH_COOLDOWN
         self.dash_timer = 0.0
         self.dash_cooldown = 0.0
+
+        self.animations = animations
 
     def try_dash(self) -> bool:
         if self.dash_timer > 0 or self.dash_cooldown > 0:
             return False
         self.dash_timer = self.dash_duration
-        self.dash_cooldown = 0.55
+        self.dash_cooldown = self.dash_cooldown_time
         return True
 
     def start_attack(self) -> bool:
         if self.attack_timer > 0 or self.attack_cooldown > 0:
             return False
         self.attack_timer = self.attack_duration
-        self.attack_cooldown = 0.22
-        self.state = "attack"
-        self.frame = 0.0
+        self.attack_cooldown = self.attack_cooldown_time
+        self.animations.play("attack", restart=True)
         return True
 
     def take_damage(self, amount: float):
         self.health = max(0.0, self.health - amount)
-        self.damage_flash = self.damage_flash_duration
+        self.damage_flash = PLAYER_DAMAGE_FLASH_DURATION
 
     def heal(self, amount: float):
         self.health = min(self.max_health, self.health + amount)
@@ -105,22 +183,16 @@ class Player:
 
         if self.attack_timer > 0:
             self.attack_timer = max(0.0, self.attack_timer - dt)
-            self.frame += dt * self.attack_fps
-            if self.attack_timer <= 0:
-                self.state = "walk" if (moving or self.dash_timer > 0) else "idle"
-                self.frame = 0.0
-            return
 
-        moving_now = moving or self.dash_timer > 0
-        if moving_now:
-            if self.state != "walk":
-                self.frame = 0.0
-            self.state = "walk"
-            frames = self.animations["walk"][self.direction_index]
-            self.frame = (self.frame + dt * self.walk_fps) % len(frames)
+        if self.attack_timer > 0:
+            desired_state = "attack"
+        elif moving or self.dash_timer > 0:
+            desired_state = "walk"
         else:
-            self.state = "idle"
-            self.frame = 0.0
+            desired_state = "idle"
+
+        self.animations.play(desired_state)
+        self.animations.update(dt)
 
         self.damage_flash = max(0.0, self.damage_flash - dt)
 
@@ -130,51 +202,72 @@ class Player:
 
     @property
     def is_attacking(self) -> bool:
-        return self.state == "attack" and self.attack_timer > 0
+        return self.attack_timer > 0
 
-    def sprite(self) -> pygame.Surface:
-        direction = self.direction_index
-        if self.state == "attack":
-            frames = self.animations["attack"][direction]
-            index = min(len(frames) - 1, int(self.frame))
-            return frames[index]
-        frames = self.animations["walk"][direction]
-        if self.state == "walk":
-            index = int(self.frame) % len(frames)
-            return frames[index]
-        return frames[0]
+    def current_frame(self):
+        frame = self.animations.frame(self.direction_index)
+        return frame if frame is not None else pygame.Surface((0, 0))
+
 
 class Enemy:
-    def __init__(self, position: pygame.Vector2):
+    def __init__(self, position, animations: AnimationSet, radius: int):
         self.position = pygame.Vector2(position)
-        self.radius = 10
-        self.speed = 110
+        self.radius = radius
+        self.speed = ENEMY_MOVE_SPEED
         self.max_health = 60
         self.health = self.max_health
-        self.attack_damage = 12
-        self.attack_cooldown = 0.8
+
+        self.attack_damage = ENEMY_ATTACK_DAMAGE
+        self.attack_cooldown_time = ENEMY_ATTACK_COOLDOWN
         self.attack_timer = 0.0
 
-    def update(self, dt: float, target: pygame.Vector2):
+        self.attack_duration = ENEMY_ATTACK_DURATION
+        self.attack_anim_timer = 0.0
+        self.hurt_duration = ENEMY_HURT_DURATION
+        self.hurt_timer = 0.0
+
+        self.direction = pygame.Vector2(0, 1)
+        self.animations = animations
+
+    def update(self, dt: float, target):
         to_player = target - self.position
         if to_player.length_squared() > 0:
-            direction = to_player.normalize()
-            self.position += direction * self.speed * dt
-        self.attack_timer = max(0.0, self.attack_timer - dt)
+            self.direction = to_player.normalize()
 
-    def ready_to_attack(self, target_pos: pygame.Vector2, target_radius: float) -> bool:
+        can_move = self.hurt_timer <= 0 and self.attack_anim_timer <= 0
+        if can_move and to_player.length_squared() > 0:
+            self.position += self.direction * self.speed * dt
+
+        self.attack_timer = max(0.0, self.attack_timer - dt)
+        self.hurt_timer = max(0.0, self.hurt_timer - dt)
+        self.attack_anim_timer = max(0.0, self.attack_anim_timer - dt)
+
+        if self.animations.state == "hurt" and self.hurt_timer <= 0:
+            self.animations.play("walk", restart=True)
+        if self.animations.state == "attack" and self.attack_anim_timer <= 0:
+            self.animations.play("walk", restart=True)
+
+        if self.animations.state not in {"attack", "hurt"}:
+            self.animations.play("walk")
+
+        self.animations.update(dt)
+
+    def ready_to_attack(self, target_pos, target_radius: float) -> bool:
         if self.attack_timer > 0:
             return False
-        
-        total_range = self.radius + target_radius + 3
-
+        total_range = self.radius + target_radius + 6
         if (target_pos - self.position).length_squared() <= total_range * total_range:
-            self.attack_timer = self.attack_cooldown
+            self.attack_timer = self.attack_cooldown_time
+            self.attack_anim_timer = self.attack_duration
+            self.animations.play("attack", restart=True)
             return True
         return False
 
     def take_damage(self, amount: float):
         self.health -= amount
+        if self.health > 0:
+            self.hurt_timer = self.hurt_duration
+            self.animations.play("hurt", restart=True)
 
     @property
     def is_dead(self) -> bool:
@@ -184,6 +277,12 @@ class Enemy:
     def health_ratio(self) -> float:
         return max(0.0, self.health / self.max_health)
 
+    @property
+    def direction_index(self) -> int:
+        return vector_to_direction_index(self.direction)
+
+    def current_frame(self):
+        return self.animations.frame(self.direction_index)
 
 class Game:
     def __init__(self):
@@ -193,14 +292,53 @@ class Game:
         self.clock = pygame.time.Clock()
         self.running = True
 
-        sprite_root = Path(__file__).resolve().parent / "assets" / "sprites" / "character" / "swordman"
-        sprite_scale = 2
-        animations = {
-            "walk": load_directional_frames(sprite_root, "walk", sprite_scale),
-            "attack": load_directional_frames(sprite_root, "attack", sprite_scale),
+        swordman_root = Path(__file__).resolve().parent / "assets" / "sprites" / "character" / "swordman"
+        swordman_scale = 1.8
+        swordman_walk_frames = load_directional_frames(swordman_root, "walk", 32, 8, swordman_scale)
+        swordman_attack_frames = load_directional_frames(swordman_root, "attack", 32, 8, swordman_scale)
+        swordman_idle_frames = build_idle_frames(swordman_walk_frames)
+        player_anim_data = {
+            "idle": {"frames": swordman_idle_frames, "fps": 0, "loop": False},
+            "walk": {"frames": swordman_walk_frames, "fps": PLAYER_WALK_FPS, "loop": True},
         }
-        self.player = Player(SCREEN_CENTER, animations)
-        self.player.radius = int(16 * sprite_scale)
+        attack_fps = len(swordman_attack_frames[0]) / PLAYER_ATTACK_DURATION if PLAYER_ATTACK_DURATION > 0 else PLAYER_WALK_FPS
+        player_anim_data["attack"] = {
+            "frames": swordman_attack_frames,
+            "fps": attack_fps,
+            "loop": False,
+            "duration": PLAYER_ATTACK_DURATION,
+        }
+        self.player = Player(SCREEN_CENTER, AnimationSet(player_anim_data))
+        self.player.radius = int(16 * swordman_scale)
+
+        goblin_root = Path(__file__).resolve().parent / "assets" / "sprites"  / "mobs" / "goblin"
+        goblin_scale = 1.35
+        goblin_order = [0, 2, 3, 1]  # bas, gauche, droite, haut
+        goblin_walk_frames = load_directional_frames(goblin_root, "walk", 24, 6, goblin_scale, goblin_order)
+        goblin_attack_frames = load_directional_frames(goblin_root, "attack", 24, 6, goblin_scale, goblin_order)
+        goblin_hurt_frames = load_directional_frames(goblin_root, "hurt", 24, 6, goblin_scale, goblin_order)
+        goblin_anim_data = {
+            "walk": {"frames": goblin_walk_frames, "fps": ENEMY_WALK_FPS, "loop": True},
+            "attack": {
+                "frames": goblin_attack_frames,
+                "fps": len(goblin_attack_frames[0]) / ENEMY_ATTACK_DURATION if ENEMY_ATTACK_DURATION > 0 else ENEMY_WALK_FPS,
+                "loop": False,
+                "duration": ENEMY_ATTACK_DURATION,
+            },
+            "hurt": {
+                "frames": goblin_hurt_frames,
+                "fps": len(goblin_hurt_frames[0]) / ENEMY_HURT_DURATION if ENEMY_HURT_DURATION > 0 else ENEMY_WALK_FPS,
+                "loop": False,
+                "duration": ENEMY_HURT_DURATION,
+            },
+        }
+        walk_frames_sample = goblin_walk_frames[0]
+        if walk_frames_sample:
+            self.enemy_radius = max(8, walk_frames_sample[0].get_width() // 3)
+        else:
+            self.enemy_radius = 10
+
+        self.enemy_anim_template = AnimationSet(goblin_anim_data)
 
         self.enemies: list[Enemy] = []
         self.wave = 0
@@ -212,12 +350,23 @@ class Game:
 
         self.font = pygame.font.Font(None, 28)
         self.camera = pygame.Vector2()
-        self.dash_effects = []
+        self.dash_effects: list[dict[str, float | pygame.Vector2]] = []
         self.dash_effect_timer = 0.0
         self.dash_effect_interval = 0.05
         self.dash_effect_lifetime = 0.22
 
         self.start_wave()
+
+    def clone_enemy_animation(self) -> AnimationSet:
+        data_copy: dict[str, dict] = {}
+        for state, info in self.enemy_anim_template.data.items():
+            data_copy[state] = {
+                "frames": info["frames"],
+                "fps": info.get("fps", 0),
+                "loop": info.get("loop", True),
+                "duration": info.get("duration"),
+            }
+        return AnimationSet(data_copy)
 
     def start_wave(self):
         self.wave += 1
@@ -230,22 +379,27 @@ class Game:
         angle = random.uniform(0, math.tau)
         distance = random.uniform(self.spawn_radius_min, self.spawn_radius_max)
         offset = pygame.Vector2(math.cos(angle), math.sin(angle)) * distance
-        return Enemy(self.player.position + offset)
+        return Enemy(self.player.position + offset, self.clone_enemy_animation(), self.enemy_radius)
 
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE or event.key == pygame.K_q:
+                if event.key == pygame.K_ESCAPE:
                     self.running = False
                 elif event.key in (pygame.K_SPACE, pygame.K_LSHIFT, pygame.K_RSHIFT):
-                    self.player.try_dash()
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if self.player.start_attack():
-                    self.apply_player_attack()
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
-               self.player.try_dash()
+                    if self.player.try_dash():
+                        self.add_dash_effect()
+                        self.dash_effect_timer = self.dash_effect_interval
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:
+                    if self.player.start_attack():
+                        self.apply_player_attack()
+                elif event.button == 3:
+                    if self.player.try_dash():
+                        self.add_dash_effect()
+                        self.dash_effect_timer = self.dash_effect_interval
 
     def add_dash_effect(self):
         self.dash_effects.append({"pos": self.player.position.copy(), "life": self.dash_effect_lifetime})
@@ -278,7 +432,6 @@ class Game:
             enemy.update(dt, self.player.position)
             if enemy.ready_to_attack(self.player.position, self.player.radius):
                 self.player.take_damage(enemy.attack_damage)
-
         self.enemies = [enemy for enemy in self.enemies if not enemy.is_dead]
 
         if self.wave_active and not self.enemies:
@@ -305,14 +458,14 @@ class Game:
             self.screen.blit(surface, (pos.x - size, pos.y - size))
 
     def draw_player(self):
-        sprite = self.player.sprite()
+        sprite = self.player.current_frame()
         screen_position = self.player.position - self.camera
         rect = sprite.get_rect(center=(int(screen_position.x), int(screen_position.y)))
         self.screen.blit(sprite, rect)
 
         if self.player.damage_flash > 0:
-            ratio = self.player.damage_flash / self.player.damage_flash_duration if self.player.damage_flash_duration else 0.0
-            radius = int(self.player.radius * 0.8)
+            ratio = self.player.damage_flash / PLAYER_DAMAGE_FLASH_DURATION if PLAYER_DAMAGE_FLASH_DURATION else 0.0
+            radius = max(12, int(self.player.radius * 1.6))
             size = radius * 2
             flash_surface = pygame.Surface((size, size), pygame.SRCALPHA)
             alpha = int(200 * ratio)
@@ -322,13 +475,15 @@ class Game:
     def draw_enemies(self):
         for enemy in self.enemies:
             screen_pos = enemy.position - self.camera
-            center = (int(screen_pos.x), int(screen_pos.y))
-            pygame.draw.circle(self.screen, (200, 80, 80), center, enemy.radius)
+            sprite = enemy.current_frame()
+            if sprite is not None:
+                rect = sprite.get_rect(center=(int(screen_pos.x), int(screen_pos.y)))
+                self.screen.blit(sprite, rect)
 
-            bar_width = enemy.radius * 2
+            bar_width = max(20, enemy.radius * 2)
             bar_height = 4
-            bar_x = center[0] - bar_width // 2
-            bar_y = center[1] + enemy.radius + 4
+            bar_x = int(screen_pos.x - bar_width / 2)
+            bar_y = int(screen_pos.y + enemy.radius + 4)
             pygame.draw.rect(self.screen, (60, 30, 30), (bar_x, bar_y, bar_width, bar_height))
             pygame.draw.rect(
                 self.screen,
@@ -366,14 +521,10 @@ class Game:
         pygame.quit()
         sys.exit()
 
+
 def main():
     Game().run()
 
+
 if __name__ == "__main__":
     main()
-
-
-
-
-
-

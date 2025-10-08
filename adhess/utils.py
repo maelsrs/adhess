@@ -1,7 +1,7 @@
 import pygame
 
 
-def vector_to_direction_index(vector: pygame.Vector2) -> int:
+def vector_to_direction_index(vector):
     if vector.length_squared() == 0:
         return 0
     x, y = vector.x, vector.y

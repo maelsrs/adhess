@@ -1,22 +1,15 @@
-from __future__ import annotations
-
-from pathlib import Path
-from typing import Dict, List, Optional
-
 import pygame
-
-DirectionFrames = List[List[pygame.Surface]]
 
 
 def load_directional_frames(
-    root: Path,
-    prefix: str,
-    frame_count: int,
-    frames_per_direction: int,
-    scale: float = 1.0,
-    direction_order: Optional[List[int]] = None,
-) -> DirectionFrames:
-    frames: List[pygame.Surface] = []
+    root,
+    prefix,
+    frame_count,
+    frames_per_direction,
+    scale=1.0,
+    direction_order=None,
+):
+    frames = []
     for index in range(frame_count):
         image_path = root / f"{prefix}{index:03d}.png"
         surface = pygame.image.load(str(image_path)).convert_alpha()
@@ -32,30 +25,30 @@ def load_directional_frames(
     return directions
 
 
-def build_idle_frames(walk_frames: DirectionFrames) -> DirectionFrames:
-    idle: DirectionFrames = []
+def build_idle_frames(walk_frames):
+    idle = []
     for direction_frames in walk_frames:
         idle.append([direction_frames[0]] if direction_frames else [])
     return idle
 
 
 class AnimationSet:
-    def __init__(self, data: Dict[str, Dict]):
+    def __init__(self, data):
         self.data = data
         self.state = next(iter(data))
         self.time = 0.0
 
-    def play(self, state: str, restart: bool = False):
+    def play(self, state, restart=False):
         if state not in self.data:
             return
         if state != self.state or restart:
             self.state = state
             self.time = 0.0
 
-    def update(self, dt: float):
+    def update(self, dt):
         self.time += dt
 
-    def frame(self, direction: int):
+    def frame(self, direction):
         info = self.data[self.state]
         frames = info["frames"][direction]
         if not frames:

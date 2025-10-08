@@ -1,8 +1,5 @@
-from __future__ import annotations
-
 import pygame
 
-from adhess.animations import AnimationSet
 from adhess.constants import (
     PLAYER_ATTACK_COOLDOWN,
     PLAYER_ATTACK_DAMAGE,
@@ -19,7 +16,7 @@ from adhess.utils import vector_to_direction_index
 
 
 class Player:
-    def __init__(self, position: tuple[float, float], animations: AnimationSet):
+    def __init__(self, position, animations):
         self.position = pygame.Vector2(position)
         self.radius = 16
         self.speed = PLAYER_MOVE_SPEED
@@ -45,14 +42,14 @@ class Player:
 
         self.animations = animations
 
-    def try_dash(self) -> bool:
+    def try_dash(self):
         if self.dash_timer > 0 or self.dash_cooldown > 0:
             return False
         self.dash_timer = self.dash_duration
         self.dash_cooldown = self.dash_cooldown_time
         return True
 
-    def start_attack(self) -> bool:
+    def start_attack(self):
         if self.attack_timer > 0 or self.attack_cooldown > 0:
             return False
         self.attack_timer = self.attack_duration
@@ -60,14 +57,14 @@ class Player:
         self.animations.play("attack", restart=True)
         return True
 
-    def take_damage(self, amount: float):
+    def take_damage(self, amount):
         self.health = max(0.0, self.health - amount)
         self.damage_flash = PLAYER_DAMAGE_FLASH_DURATION
 
-    def heal(self, amount: float):
+    def heal(self, amount):
         self.health = min(self.max_health, self.health + amount)
 
-    def update(self, dt: float, pressed):
+    def update(self, dt, pressed):
         move = pygame.Vector2(0, 0)
         if pressed[pygame.K_a] or pressed[pygame.K_LEFT]:
             move.x -= 1
@@ -107,11 +104,11 @@ class Player:
         self.damage_flash = max(0.0, self.damage_flash - dt)
 
     @property
-    def direction_index(self) -> int:
+    def direction_index(self):
         return vector_to_direction_index(self.direction)
 
     @property
-    def is_attacking(self) -> bool:
+    def is_attacking(self):
         return self.attack_timer > 0
 
     def current_frame(self):

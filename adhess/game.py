@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import math
 import random
 import sys
@@ -81,7 +79,7 @@ class Game:
 
         self.enemy_anim_template = AnimationSet(goblin_anim_data)
 
-        self.enemies: list[Enemy] = []
+        self.enemies = []
         self.wave = 0
         self.wave_active = False
         self.wave_delay = 1.0
@@ -91,15 +89,15 @@ class Game:
 
         self.font = pygame.font.Font(None, 28)
         self.camera = pygame.Vector2()
-        self.dash_effects: list[dict[str, float | pygame.Vector2]] = []
+        self.dash_effects = []
         self.dash_effect_timer = 0.0
         self.dash_effect_interval = 0.05
         self.dash_effect_lifetime = 0.22
 
         self.start_wave()
 
-    def clone_enemy_animation(self) -> AnimationSet:
-        data_copy: dict[str, dict] = {}
+    def clone_enemy_animation(self):
+        data_copy = {}
         for state, info in self.enemy_anim_template.data.items():
             data_copy[state] = {
                 "frames": info["frames"],
@@ -116,7 +114,7 @@ class Game:
         self.wave_active = True
         self.player.heal(self.player.max_health * 0.5)
 
-    def create_enemy(self) -> Enemy:
+    def create_enemy(self):
         angle = random.uniform(0, math.tau)
         distance = random.uniform(self.spawn_radius_min, self.spawn_radius_max)
         offset = pygame.Vector2(math.cos(angle), math.sin(angle)) * distance
@@ -153,7 +151,7 @@ class Game:
             if (enemy.position - center).length_squared() <= total_radius * total_radius:
                 enemy.take_damage(self.player.attack_damage)
 
-    def update(self, dt: float):
+    def update(self, dt):
         pressed = pygame.key.get_pressed()
         self.player.update(dt, pressed)
 

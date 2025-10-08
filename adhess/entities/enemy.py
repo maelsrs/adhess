@@ -1,8 +1,5 @@
-from __future__ import annotations
-
 import pygame
 
-from adhess.animations import AnimationSet
 from adhess.constants import (
     ENEMY_ATTACK_COOLDOWN,
     ENEMY_ATTACK_DAMAGE,
@@ -14,7 +11,7 @@ from adhess.utils import vector_to_direction_index
 
 
 class Enemy:
-    def __init__(self, position, animations: AnimationSet, radius: int):
+    def __init__(self, position, animations, radius):
         self.position = pygame.Vector2(position)
         self.radius = radius
         self.speed = ENEMY_MOVE_SPEED
@@ -33,7 +30,7 @@ class Enemy:
         self.direction = pygame.Vector2(0, 1)
         self.animations = animations
 
-    def update(self, dt: float, target):
+    def update(self, dt, target):
         to_player = target - self.position
         if to_player.length_squared() > 0:
             self.direction = to_player.normalize()
@@ -56,7 +53,7 @@ class Enemy:
 
         self.animations.update(dt)
 
-    def ready_to_attack(self, target_pos, target_radius: float) -> bool:
+    def ready_to_attack(self, target_pos, target_radius):
         if self.attack_timer > 0:
             return False
         total_range = self.radius + target_radius + 6
@@ -67,22 +64,22 @@ class Enemy:
             return True
         return False
 
-    def take_damage(self, amount: float):
+    def take_damage(self, amount):
         self.health -= amount
         if self.health > 0:
             self.hurt_timer = self.hurt_duration
             self.animations.play("hurt", restart=True)
 
     @property
-    def is_dead(self) -> bool:
+    def is_dead(self):
         return self.health <= 0
 
     @property
-    def health_ratio(self) -> float:
+    def health_ratio(self):
         return max(0.0, self.health / self.max_health)
 
     @property
-    def direction_index(self) -> int:
+    def direction_index(self):
         return vector_to_direction_index(self.direction)
 
     def current_frame(self):

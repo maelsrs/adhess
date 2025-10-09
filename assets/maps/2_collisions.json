@@ -1,0 +1,21 @@
+{
+  "bounds_padding": 0,
+  "rects": [
+    {"type": "interior", "rect": [915, 995, 190, 78]},
+    {"type": "interior", "rect": [1484, 1057, 22, 23]},
+    {"type": "exterior", "rect": [1544, 551, 83, 1100]},
+    {"type": "exterior", "rect": [580, 1543, 930, 77]},
+    {"type": "exterior", "rect": [412, 524, 164, 1081]},
+    {"type": "exterior", "rect": [408, 525, 1099, 14]},
+    {"type": "interior", "rect": [1155, 1014, 126, 59]},
+    {"type": "interior", "rect": [1279, 1030, 52, 40]},
+    {"type": "interior", "rect": [1343, 1055, 45, 19]},
+    {"type": "interior", "rect": [1153, 1130, 224, 75]},
+    {"type": "interior", "rect": [920, 1130, 185, 73]},
+    {"type": "interior", "rect": [1381, 1132, 18, 57]},
+    {"type": "interior", "rect": [780, 998, 84, 206]},
+    {"type": "interior", "rect": [712, 1028, 69, 173]},
+    {"type": "interior", "rect": [666, 1080, 21, 65]}
+
+  ]
+}

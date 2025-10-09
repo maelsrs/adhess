@@ -61,37 +61,67 @@ class Game:
         }
         self.player = Player(self.map.rect.center, AnimationSet(player_anim_data))
         self.player.radius = int(16 * swordman_scale)
-        self.player.position = self.get_random_spawn_position()
+        self.player.position = self.random_spawn_point()
         self.map.resolve_collisions(self.player.position, self.player.radius, PLAYER_COLLISION_TYPES)
 
-        goblin_root = ASSETS_DIR / "sprites" / "mobs" / "goblin"
-        goblin_scale = 1.35
-        goblin_order = [0, 2, 3, 1]
-        goblin_walk_frames = load_directional_frames(goblin_root, "walk", 24, 6, goblin_scale, goblin_order)
-        goblin_attack_frames = load_directional_frames(goblin_root, "attack", 24, 6, goblin_scale, goblin_order)
-        goblin_hurt_frames = load_directional_frames(goblin_root, "hurt", 24, 6, goblin_scale, goblin_order)
-        goblin_anim_data = {
-            "walk": {"frames": goblin_walk_frames, "fps": ENEMY_WALK_FPS, "loop": True},
-            "attack": {
-                "frames": goblin_attack_frames,
-                "fps": len(goblin_attack_frames[0]) / ENEMY_ATTACK_DURATION if ENEMY_ATTACK_DURATION > 0 else ENEMY_WALK_FPS,
-                "loop": False,
-                "duration": ENEMY_ATTACK_DURATION,
-            },
-            "hurt": {
-                "frames": goblin_hurt_frames,
-                "fps": len(goblin_hurt_frames[0]) / ENEMY_HURT_DURATION if ENEMY_HURT_DURATION > 0 else ENEMY_WALK_FPS,
-                "loop": False,
-                "duration": ENEMY_HURT_DURATION,
-            },
-        }
-        walk_frames_sample = goblin_walk_frames[0]
-        if walk_frames_sample:
-            self.enemy_radius = max(8, walk_frames_sample[0].get_width() // 3)
-        else:
-            self.enemy_radius = 10
+        # Enemy animations and sizes per type
+        self.enemy_anims = {}
+        self.enemy_sizes = {}
 
-        self.enemy_anim_template = AnimationSet(goblin_anim_data)
+        def _load_enemy_template(folder_name, scale=1.35, order=(0, 2, 3, 1)):
+            root = ASSETS_DIR / "sprites" / "mobs" / folder_name
+
+            def _count_frames(prefix: str) -> int:
+                count = 0
+                while True:
+                    path = root / f"{prefix}{count:03d}.png"
+                    if not path.exists():
+                        break
+                    count += 1
+                return count
+
+            def _load(prefix: str):
+                total = _count_frames(prefix)
+                if total <= 0:
+                    total = 24
+                fpd = max(1, total // 4)
+                return load_directional_frames(root, prefix, total, fpd, scale, list(order))
+
+            walk = _load("walk")
+            attack = _load("attack")
+            hurt = _load("hurt")
+            data = {
+                "walk": {"frames": walk, "fps": ENEMY_WALK_FPS, "loop": True},
+                "attack": {
+                    "frames": attack,
+                    "fps": len(attack[0]) / ENEMY_ATTACK_DURATION if ENEMY_ATTACK_DURATION > 0 else ENEMY_WALK_FPS,
+                    "loop": False,
+                    "duration": ENEMY_ATTACK_DURATION,
+                },
+                "hurt": {
+                    "frames": hurt,
+                    "fps": len(hurt[0]) / ENEMY_HURT_DURATION if ENEMY_HURT_DURATION > 0 else ENEMY_WALK_FPS,
+                    "loop": False,
+                    "duration": ENEMY_HURT_DURATION,
+                },
+            }
+            radius = 10
+            sample = walk[0] if walk else []
+            if sample:
+                radius = max(8, sample[0].get_width() // 3)
+            return AnimationSet(data), radius
+
+        anim, radius = _load_enemy_template("goblin")
+        self.enemy_anims["goblin1"] = anim
+        self.enemy_sizes["goblin1"] = radius
+
+        try:
+            anim2, radius2 = _load_enemy_template("goblin2", order=(1, 2, 3, 0))
+            self.enemy_anims["goblin2"] = anim2
+            self.enemy_sizes["goblin2"] = radius2
+        except Exception:
+            self.enemy_anims["goblin2"] = self.enemy_anims["goblin1"]
+            self.enemy_sizes["goblin2"] = self.enemy_sizes["goblin1"]
 
         self.enemies = []
         self.wave = 0
@@ -108,10 +138,10 @@ class Game:
         self.debug_font = pygame.font.Font(None, 20)
         self.debug_show_collisions = False
         self.camera = pygame.Vector2()
-        self.dash_effects = []
-        self.dash_effect_timer = 0.0
-        self.dash_effect_interval = 0.05
-        self.dash_effect_lifetime = 0.22
+        self.dash_trails = []
+        self.dash_trail_timer = 0.0
+        self.dash_trail_interval = 0.05
+        self.dash_trail_lifetime = 0.22
 
         self.upgrade_popup_active = False
         self.upgrade_selected_index = 0
@@ -163,13 +193,14 @@ class Game:
 
 
 
-    def get_random_spawn_position(self):
+    def random_spawn_point(self):
         spawn_positions = [pygame.Vector2(710, 953), pygame.Vector2(781, 1379), pygame.Vector2(1025, 1401), pygame.Vector2(1345, 1382), pygame.Vector2(1432, 946), pygame.Vector2(1399, 673), pygame.Vector2(1016, 797)]
         return random.choice(spawn_positions)
 
-    def clone_enemy_animation(self):
+    def make_enemy_anim(self, kind = "goblin1"):
+        template = self.enemy_anims.get(kind) or self.enemy_anims.get("goblin1")
         data_copy = {}
-        for state, info in self.enemy_anim_template.data.items():
+        for state, info in template.data.items():
             data_copy[state] = {
                 "frames": info["frames"],
                 "fps": info.get("fps", 0),
@@ -178,19 +209,49 @@ class Game:
             }
         return AnimationSet(data_copy)
 
+    def clone_enemy_animation(self, kind = "goblin1"):
+        return self.make_enemy_anim(kind)
+
+    def get_enemy_radius(self, kind):
+        return int(self.enemy_sizes.get(kind, self.enemy_sizes.get("goblin1", 10)))
+
+    def goblin2_share_for_wave(self, wave):
+        if wave < 5:
+            return 0.0
+        if wave >= 20:
+            return 0.75
+        if wave >= 15:
+            t = (wave - 15) / 5.0
+            return 0.5 + t * (0.75 - 0.5)
+        t = (wave - 5) / 10.0
+        return 0.2 + t * (0.5 - 0.2)
+
     def start_wave(self):
         self.wave += 1
         count = 3 + (self.wave - 1) * 2
-        self.enemies = [self.create_enemy() for _ in range(count)]
+        goblin2_ratio = self.goblin2_share_for_wave(self.wave)
+        goblin2_count = int(round(count * goblin2_ratio)) if goblin2_ratio > 0 else 0
+        goblin1_count = max(0, count - goblin2_count)
+        kinds = ["goblin2"] * goblin2_count + ["goblin1"] * goblin1_count
+        random.shuffle(kinds)
+        self.enemies = [self.create_enemy(kind) for kind in kinds]
         self.wave_active = True
         self.player.heal(self.player.max_health * 0.5)
 
-    def create_enemy(self):
+    def create_enemy(self, kind):
         angle = random.uniform(0, math.tau)
         distance = random.uniform(self.spawn_radius_min, self.spawn_radius_max)
         offset = pygame.Vector2(math.cos(angle), math.sin(angle)) * distance
         spawn_position = self.player.position + offset
-        enemy = Enemy(spawn_position, self.clone_enemy_animation(), self.enemy_radius)
+        radius = self.get_enemy_radius(kind)
+        enemy = Enemy(spawn_position, self.make_enemy_anim(kind), radius)
+        enemy.kind = kind
+
+        if kind == "goblin2":
+            enemy.speed *= 1.3
+            enemy.attack_damage *= 1.5
+            enemy.max_health *= 2
+            enemy.health = enemy.max_health
         self.map.resolve_collisions(enemy.position, enemy.radius, ENEMY_COLLISION_TYPES)
         return enemy
 
@@ -291,7 +352,7 @@ class Game:
                 return True
         return False
 
-    def compute_move_vector(self, pressed):
+    def get_move_input(self, pressed):
         move = pygame.Vector2(0, 0)
         if self.is_action_pressed("move_left", pressed):
             move.x -= 1
@@ -309,7 +370,7 @@ class Game:
                 self.key_bindings[other_action] = [existing for existing in keys if existing != key]
         self.key_bindings[action] = [key] if key is not None else []
         label = self.action_label(action)
-        key_name = self.format_key_name(key) if key is not None else "Aucune"
+        key_name = self.key_name(key) if key is not None else "Aucune"
         self.show_binding_message(f"{label} → {key_name}")
 
     def show_binding_message(self, message):
@@ -322,15 +383,15 @@ class Game:
                 return option["label"]
         return action
 
-    def format_key_name(self, key):
+    def key_name(self, key):
         if key is None:
             return "-"
         name = pygame.key.name(key)
         return name.upper() if name else f"Code {key}"
 
-    def format_binding_display(self, action):
-        primary = [self.format_key_name(key) for key in self.key_bindings.get(action, [])]
-        extras = [self.format_key_name(key) for key in self.fixed_key_bindings.get(action, [])]
+    def binding_text(self, action):
+        primary = [self.key_name(key) for key in self.key_bindings.get(action, [])]
+        extras = [self.key_name(key) for key in self.fixed_key_bindings.get(action, [])]
         parts = primary
         if extras:
             parts = parts + [f"({value})" for value in extras]
@@ -437,8 +498,8 @@ class Game:
         self.wave = 0
         self.wave_active = False
         self.wave_timer = 0.0
-        self.dash_effects = []
-        self.dash_effect_timer = 0.0
+        self.dash_trails = []
+        self.dash_trail_timer = 0.0
         self.player.position = pygame.Vector2(SCREEN_CENTER)
         self.player.direction = pygame.Vector2(0, 1)
         self.player.health = self.player.max_health
@@ -457,7 +518,7 @@ class Game:
         self.menu_option_rects = []
         self.menu_selected_index = 0
         self.close_death_menu()
-        self.player.position = self.get_random_spawn_position()
+        self.player.position = self.random_spawn_point()
         self.player.health = self.player.max_health
         self.player.damage_flash = 0.0
         self.player.attack_timer = 0.0
@@ -465,8 +526,8 @@ class Game:
         self.player.dash_timer = 0.0
         self.player.dash_cooldown = 0.0
         self.player.animations.play("idle", restart=True)
-        self.dash_effects = []
-        self.dash_effect_timer = 0.0
+        self.dash_trails = []
+        self.dash_trail_timer = 0.0
         self.enemies = []
         self.wave = 0
         self.wave_active = False
@@ -870,7 +931,7 @@ class Game:
         if waiting:
             instruction_text = "Appuie sur la nouvelle touche · Échap pour annuler"
         else:
-            toggle_name = self.format_key_name(self.binding_menu_key)
+            toggle_name = self.key_name(self.binding_menu_key)
             instruction_text = f"Entrée/Espace pour modifier · {toggle_name} ou Échap pour fermer"
         instruction_surface = self.upgrade_description_font.render(instruction_text, True, (200, 200, 200))
         instruction_rect = instruction_surface.get_rect(center=(center_x, center_y + 200))
@@ -909,8 +970,8 @@ class Game:
             label_rect.midleft = (rect.x + 20, rect.centery)
             self.screen.blit(label_surface, label_rect)
 
-            binding_text = self.format_binding_display(option["action"])
-            binding_surface = self.upgrade_description_font.render(binding_text, True, (210, 210, 210))
+            btxt = self.binding_text(option["action"]) 
+            binding_surface = self.upgrade_description_font.render(btxt, True, (210, 210, 210))
             binding_rect = binding_surface.get_rect()
             binding_rect.midright = (rect.right - 20, rect.centery)
             self.screen.blit(binding_surface, binding_rect)
@@ -946,35 +1007,46 @@ class Game:
                     self.open_binding_menu()
                 elif event.key in self.get_bound_keys("attack"):
                     if self.player.start_attack():
-                        self.apply_player_attack()
+                        self.apply_attack()
                 elif event.key == pygame.K_F1:
                     self.debug_show_collisions = not self.debug_show_collisions
                 elif event.key in (pygame.K_SPACE, pygame.K_LSHIFT, pygame.K_RSHIFT):
                     if self.player.try_dash():
                         self.add_dash_effect()
-                        self.dash_effect_timer = self.dash_effect_interval
+                        self.dash_trail_timer = self.dash_trail_interval
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if self.debug_show_collisions:
                     world_pos = self.screen_to_world(event.pos)
                     print(f"cos : {int(world_pos.x)}, {int(world_pos.y)}")
                 if event.button == 1:
                     if self.player.start_attack():
-                        self.apply_player_attack()
+                        self.apply_attack()
                 elif event.button == 3:
                     if self.player.try_dash():
                         self.add_dash_effect()
-                        self.dash_effect_timer = self.dash_effect_interval
+                        self.dash_trail_timer = self.dash_trail_interval
 
     def add_dash_effect(self):
-        self.dash_effects.append({"pos": self.player.position.copy(), "life": self.dash_effect_lifetime})
+        self.dash_trails.append({"pos": self.player.position.copy(), "life": self.dash_trail_lifetime})
 
-    def apply_player_attack(self):
+    def apply_attack(self):
         center = self.player.position + self.player.direction * self.player.attack_reach
         reach = self.player.attack_radius
         for enemy in self.enemies:
             total_radius = reach + enemy.radius
             if (enemy.position - center).length_squared() <= total_radius * total_radius:
                 enemy.take_damage(self.player.attack_damage)
+
+    def update_paused_view(self, dt: float, camera_target: pygame.Vector2):
+        # Common updates when gameplay is paused/menu/upgrade/death
+        self.player.animations.play("idle")
+        self.player.animations.update(dt)
+        self.player.damage_flash = max(0.0, self.player.damage_flash - dt)
+        self.dash_trail_timer = 0.0
+        for effect in self.dash_trails:
+            effect["life"] = max(0.0, effect["life"] - dt)
+        self.dash_trails = [effect for effect in self.dash_trails if effect["life"] > 0]
+        self.camera = pygame.Vector2(camera_target)
 
     def update(self, dt):
         if self.binding_info_timer > 0.0:
@@ -985,77 +1057,42 @@ class Game:
                 self.pause_info_message = ""
 
         if self.binding_menu_active:
-            self.player.animations.play("idle")
-            self.player.animations.update(dt)
-            self.player.damage_flash = max(0.0, self.player.damage_flash - dt)
-            self.dash_effect_timer = 0.0
-            for effect in self.dash_effects:
-                effect["life"] = max(0.0, effect["life"] - dt)
-            self.dash_effects = [effect for effect in self.dash_effects if effect["life"] > 0]
-            self.camera = self.player.position - SCREEN_CENTER
+            self.update_paused_view(dt, camera_target=self.player.position - SCREEN_CENTER)
             return
 
         if self.death_menu_active:
-            self.player.animations.play("idle")
-            self.player.animations.update(dt)
-            self.player.damage_flash = max(0.0, self.player.damage_flash - dt)
-            self.dash_effect_timer = 0.0
-            for effect in self.dash_effects:
-                effect["life"] = max(0.0, effect["life"] - dt)
-            self.dash_effects = [effect for effect in self.dash_effects if effect["life"] > 0]
-            self.camera = self.player.position - SCREEN_CENTER
+            self.update_paused_view(dt, camera_target=self.player.position - SCREEN_CENTER)
             return
 
         if self.pause_menu_active:
-            self.player.animations.play("idle")
-            self.player.animations.update(dt)
-            self.player.damage_flash = max(0.0, self.player.damage_flash - dt)
-            self.dash_effect_timer = 0.0
-            for effect in self.dash_effects:
-                effect["life"] = max(0.0, effect["life"] - dt)
-            self.dash_effects = [effect for effect in self.dash_effects if effect["life"] > 0]
-            self.camera = self.player.position - SCREEN_CENTER
+            self.update_paused_view(dt, camera_target=self.player.position - SCREEN_CENTER)
             return
 
         if self.state == "menu":
-            self.player.animations.play("idle")
-            self.player.animations.update(dt)
-            self.player.damage_flash = max(0.0, self.player.damage_flash - dt)
-            self.dash_effect_timer = 0.0
-            for effect in self.dash_effects:
-                effect["life"] = max(0.0, effect["life"] - dt)
-            self.dash_effects = [effect for effect in self.dash_effects if effect["life"] > 0]
-            self.camera = pygame.Vector2()
+            self.update_paused_view(dt, camera_target=pygame.Vector2())
             return
 
         if self.upgrade_popup_active:
-            self.player.animations.play("idle")
-            self.player.animations.update(dt)
-            self.player.damage_flash = max(0.0, self.player.damage_flash - dt)
-            self.dash_effect_timer = 0.0
-            for effect in self.dash_effects:
-                effect["life"] = max(0.0, effect["life"] - dt)
-            self.dash_effects = [effect for effect in self.dash_effects if effect["life"] > 0]
-            self.camera = self.player.position - SCREEN_CENTER
+            self.update_paused_view(dt, camera_target=self.player.position - SCREEN_CENTER)
             return
 
         pressed = pygame.key.get_pressed()
 
-        move_vector = self.compute_move_vector(pressed)
+        move_vector = self.get_move_input(pressed)
         self.player.update(dt, move_vector)
         self.map.resolve_collisions(self.player.position, self.player.radius, PLAYER_COLLISION_TYPES)
 
         if self.player.dash_timer > 0:
-            self.dash_effect_timer -= dt
-            if self.dash_effect_timer <= 0.0:
+            self.dash_trail_timer -= dt
+            if self.dash_trail_timer <= 0.0:
                 self.add_dash_effect()
-                self.dash_effect_timer = self.dash_effect_interval
+                self.dash_trail_timer = self.dash_trail_interval
         else:
-            self.dash_effect_timer = 0.0
+            self.dash_trail_timer = 0.0
 
-        for effect in self.dash_effects:
+        for effect in self.dash_trails:
             effect["life"] -= dt
-        self.dash_effects = [effect for effect in self.dash_effects if effect["life"] > 0]
+        self.dash_trails = [effect for effect in self.dash_trails if effect["life"] > 0]
 
         for enemy in self.enemies:
             enemy.update(dt, self.player.position)
@@ -1087,9 +1124,9 @@ class Game:
         self.camera.x = max(0, min(desired_camera.x, max_x))
         self.camera.y = max(0, min(desired_camera.y, max_y))
 
-    def draw_dash_effects(self):
-        for effect in self.dash_effects:
-            ratio = effect["life"] / self.dash_effect_lifetime if self.dash_effect_lifetime else 0.0
+    def draw_dash_trails(self):
+        for effect in self.dash_trails:
+            ratio = effect["life"] / self.dash_trail_lifetime if self.dash_trail_lifetime else 0.0
             size = max(3, int(18 * ratio))
             alpha = max(30, int(200 * ratio))
             surface = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
@@ -1183,7 +1220,7 @@ class Game:
                 lines.append("Amélioration disponible !")
             else:
                 lines.append(f"Prochaine vague dans {self.wave_timer:.1f}s")
-        lines.append(f"{self.format_key_name(self.binding_menu_key)}: configurer les touches")
+        lines.append(f"{self.key_name(self.binding_menu_key)}: configurer les touches")
         for index, text in enumerate(lines):
             surface = self.font.render(text, True, (0, 0, 0))
             self.screen.blit(surface, (20, 20 + index * 22))
@@ -1198,7 +1235,7 @@ class Game:
             return
         self.map.draw(self.screen, self.camera, self.map_offset)
         self.draw_enemies()
-        self.draw_dash_effects()
+        self.draw_dash_trails()
         self.draw_player()
         self.draw_debug_overlay()
         self.draw_ui()

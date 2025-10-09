@@ -64,7 +64,7 @@ def player_data(player):
 
 
 def enemy_data(enemy):
-    return {
+    data = {
         "position": vector_to_list(enemy.position),
         "direction": vector_to_list(enemy.direction),
         "radius": float(enemy.radius),
@@ -75,6 +75,10 @@ def enemy_data(enemy):
         "attack_cooldown_time": float(enemy.attack_cooldown_time),
         "attack_duration": float(enemy.attack_duration),
     }
+    kind = getattr(enemy, "kind", None)
+    if kind:
+        data["type"] = str(kind)
+    return data
 
 
 def bindings_data(game):
@@ -173,8 +177,12 @@ def set_enemies(game, enemies_data):
     enemies = []
     for entry in enemies_data or []:
         position = vector_from_list(entry.get("position"))
-        radius = float(entry.get("radius", getattr(game, "enemy_radius", 10.0)))
-        enemy = Enemy(position, game.clone_enemy_animation(), radius)
+        kind = entry.get("type") or "goblin1"
+        default_radius = game.get_enemy_radius(kind) if hasattr(game, "get_enemy_radius") else getattr(game, "enemy_radius", 10.0)
+        radius = float(entry.get("radius", default_radius))
+        animations = game.clone_enemy_animation(kind) if hasattr(game, "clone_enemy_animation") else game.clone_enemy_animation()
+        enemy = Enemy(position, animations, radius)
+        enemy.kind = kind
         enemy.direction = vector_from_list(entry.get("direction"), enemy.direction)
 
         for attr in ("speed", "max_health", "health", "attack_damage"):
@@ -236,4 +244,3 @@ def load_game(game, path=None):
 def has_save(path=None):
     target = Path(path) if path is not None else DEFAULT_PATH
     return target.exists() and target.is_file()
-

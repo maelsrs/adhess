@@ -115,15 +115,11 @@ def _resolve_circle_rect(position, radius, rect):
         right_pen = abs(rect.right - position.x)
         top_pen = abs(position.y - rect.top)
         bottom_pen = abs(rect.bottom - position.y)
-        _, axis = min(
-            (
-                (left_pen, (-1, 0)),
-                (right_pen, (1, 0)),
-                (top_pen, (0, -1)),
-                (bottom_pen, (0, 1)),
-            ),
-            key=lambda item: item[0],
-        )
+        best = (left_pen, (-1, 0))
+        for candidate in ((right_pen, (1, 0)), (top_pen, (0, -1)), (bottom_pen, (0, 1))):
+            if candidate[0] < best[0]:
+                best = candidate
+        _, axis = best
         if axis[0] != 0:
             position.x = rect.left - radius if axis[0] < 0 else rect.right + radius
         else:

@@ -6,6 +6,7 @@ from pathlib import Path
 import pygame
 
 from adhess.animations import AnimationSet, build_idle_frames, load_directional_frames
+from adhess.data import save_game, load_game, has_save
 from adhess.constants import (
     BACKGROUND_COLOR,
     ENEMY_ATTACK_DURATION,
@@ -60,7 +61,7 @@ class Game:
         }
         self.player = Player(self.map.rect.center, AnimationSet(player_anim_data))
         self.player.radius = int(16 * swordman_scale)
-        self.player.position = pygame.Vector2(self.map.rect.center)
+        self.player.position = self.get_random_spawn_position()
         self.map.resolve_collisions(self.player.position, self.player.radius, PLAYER_COLLISION_TYPES)
 
         goblin_root = ASSETS_DIR / "sprites" / "mobs" / "goblin"
@@ -134,7 +135,7 @@ class Game:
         self.menu_options = [
             {"label": "Jouer", "action": "play"},
             {"label": "Configurer ses touches", "action": "configure"},
-            {"label": "Charger / Sauvegarder", "action": "save_load"},
+            {"label": "Charger la partie", "action": "save_load"},
         ]
         self.menu_selected_index = 0
         self.menu_option_rects = []
@@ -158,6 +159,13 @@ class Game:
         ]
         self.death_selected_index = 0
         self.death_option_rects = []
+
+
+
+
+    def get_random_spawn_position(self):
+        spawn_positions = [pygame.Vector2(710, 953), pygame.Vector2(781, 1379), pygame.Vector2(1025, 1401), pygame.Vector2(1345, 1382), pygame.Vector2(1432, 946), pygame.Vector2(1399, 673), pygame.Vector2(1016, 797)]
+        return random.choice(spawn_positions)
 
     def clone_enemy_animation(self):
         data_copy = {}
@@ -372,7 +380,8 @@ class Game:
             return
         action = self.pause_menu_options[index]["action"]
         if action == "save":
-            self.show_pause_message("Sauvegarde visuelle uniquement")
+            save_game(self)
+            self.return_to_menu()
         elif action == "quit":
             self.return_to_menu()
 
@@ -448,8 +457,7 @@ class Game:
         self.menu_option_rects = []
         self.menu_selected_index = 0
         self.close_death_menu()
-        self.player.position = pygame.Vector2(SCREEN_CENTER)
-        self.player.direction = pygame.Vector2(0, 1)
+        self.player.position = self.get_random_spawn_position()
         self.player.health = self.player.max_health
         self.player.damage_flash = 0.0
         self.player.attack_timer = 0.0
@@ -504,6 +512,9 @@ class Game:
             self.start_game()
         elif action == "configure":
             self.open_binding_menu()
+        elif action == "save_load":
+            if has_save():
+                load_game(self)
 
     def handle_binding_menu_event(self, event):
         if event.type == pygame.KEYDOWN:
@@ -1174,7 +1185,7 @@ class Game:
                 lines.append(f"Prochaine vague dans {self.wave_timer:.1f}s")
         lines.append(f"{self.format_key_name(self.binding_menu_key)}: configurer les touches")
         for index, text in enumerate(lines):
-            surface = self.font.render(text, True, (230, 230, 230))
+            surface = self.font.render(text, True, (0, 0, 0))
             self.screen.blit(surface, (20, 20 + index * 22))
 
     def draw(self):

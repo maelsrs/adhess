@@ -115,7 +115,34 @@ class Game:
         self.binding_info_duration = 2.0
         self.binding_options = self.build_binding_options()
 
-        self.start_wave()
+        self.menu_title_font = pygame.font.Font(None, 72)
+        self.menu_options = [
+            {"label": "Jouer", "action": "play"},
+            {"label": "Configurer ses touches", "action": "configure"},
+            {"label": "Charger / Sauvegarder", "action": "save_load"},
+        ]
+        self.menu_selected_index = 0
+        self.menu_option_rects = []
+        self.state = "menu"
+
+        self.pause_menu_active = False
+        self.pause_menu_options = [
+            {"label": "Sauvegarder", "action": "save"},
+            {"label": "Quitter", "action": "quit"},
+        ]
+        self.pause_selected_index = 0
+        self.pause_option_rects = []
+        self.pause_info_message = ""
+        self.pause_info_timer = 0.0
+        self.pause_info_duration = 2.0
+
+        self.death_menu_active = False
+        self.death_menu_options = [
+            {"label": "Rejouer", "action": "restart"},
+            {"label": "Retour au menu", "action": "menu"},
+        ]
+        self.death_selected_index = 0
+        self.death_option_rects = []
 
     def clone_enemy_animation(self):
         data_copy = {}
@@ -292,6 +319,167 @@ class Game:
         self.binding_waiting_for_action = None
         self.binding_option_rects = []
 
+    def show_pause_message(self, message):
+        self.pause_info_message = message
+        if message:
+            self.pause_info_timer = self.pause_info_duration
+        else:
+            self.pause_info_timer = 0.0
+
+    def open_pause_menu(self):
+        if self.pause_menu_active:
+            return
+        self.pause_menu_active = True
+        self.pause_selected_index = 0
+        self.pause_option_rects = []
+        self.show_pause_message("")
+
+    def close_pause_menu(self):
+        if not self.pause_menu_active:
+            return
+        self.pause_menu_active = False
+        self.pause_option_rects = []
+        self.pause_selected_index = 0
+        self.show_pause_message("")
+
+    def activate_pause_option(self, index):
+        if not (0 <= index < len(self.pause_menu_options)):
+            return
+        action = self.pause_menu_options[index]["action"]
+        if action == "save":
+            self.show_pause_message("Sauvegarde visuelle uniquement")
+        elif action == "quit":
+            self.return_to_menu()
+
+    def open_death_menu(self):
+        if self.death_menu_active:
+            return
+        self.death_menu_active = True
+        self.death_selected_index = 0
+        self.death_option_rects = []
+        self.pause_menu_active = False
+        self.pause_option_rects = []
+        self.pause_selected_index = 0
+        self.binding_menu_active = False
+        self.binding_waiting_for_action = None
+        self.binding_option_rects = []
+        self.binding_info_message = ""
+        self.binding_info_timer = 0.0
+        self.upgrade_popup_active = False
+        self.upgrade_option_rects = []
+        self.state = "game_over"
+
+    def close_death_menu(self):
+        if not self.death_menu_active:
+            return
+        self.death_menu_active = False
+        self.death_option_rects = []
+        self.death_selected_index = 0
+
+    def activate_death_option(self, index):
+        if not (0 <= index < len(self.death_menu_options)):
+            return
+        action = self.death_menu_options[index]["action"]
+        if action == "restart":
+            self.start_game()
+        elif action == "menu":
+            self.return_to_menu()
+
+    def return_to_menu(self):
+        self.state = "menu"
+        self.close_pause_menu()
+        self.close_death_menu()
+        self.menu_selected_index = 0
+        self.menu_option_rects = []
+        self.binding_menu_active = False
+        self.binding_waiting_for_action = None
+        self.binding_option_rects = []
+        self.binding_info_message = ""
+        self.binding_info_timer = 0.0
+        self.upgrade_popup_active = False
+        self.upgrade_option_rects = []
+        self.upgrade_choices = []
+        self.enemies = []
+        self.wave = 0
+        self.wave_active = False
+        self.wave_timer = 0.0
+        self.dash_effects = []
+        self.dash_effect_timer = 0.0
+        self.player.position = pygame.Vector2(SCREEN_CENTER)
+        self.player.direction = pygame.Vector2(0, 1)
+        self.player.health = self.player.max_health
+        self.player.damage_flash = 0.0
+        self.player.attack_timer = 0.0
+        self.player.attack_cooldown = 0.0
+        self.player.dash_timer = 0.0
+        self.player.dash_cooldown = 0.0
+        self.player.animations.play("idle", restart=True)
+        self.camera = pygame.Vector2()
+
+    def start_game(self):
+        if self.state == "playing":
+            return
+        self.state = "playing"
+        self.menu_option_rects = []
+        self.menu_selected_index = 0
+        self.close_death_menu()
+        self.player.position = pygame.Vector2(SCREEN_CENTER)
+        self.player.direction = pygame.Vector2(0, 1)
+        self.player.health = self.player.max_health
+        self.player.damage_flash = 0.0
+        self.player.attack_timer = 0.0
+        self.player.attack_cooldown = 0.0
+        self.player.dash_timer = 0.0
+        self.player.dash_cooldown = 0.0
+        self.player.animations.play("idle", restart=True)
+        self.dash_effects = []
+        self.dash_effect_timer = 0.0
+        self.enemies = []
+        self.wave = 0
+        self.wave_active = False
+        self.wave_timer = 0.0
+        self.upgrade_popup_active = False
+        self.upgrade_option_rects = []
+        self.upgrade_choices = []
+        self.pause_menu_active = False
+        self.pause_option_rects = []
+        self.pause_selected_index = 0
+        self.pause_info_message = ""
+        self.pause_info_timer = 0.0
+        self.binding_info_message = ""
+        self.binding_info_timer = 0.0
+        self.start_wave()
+
+    def handle_menu_event(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self.running = False
+            elif event.key in (pygame.K_UP, pygame.K_w):
+                self.menu_selected_index = (self.menu_selected_index - 1) % len(self.menu_options)
+            elif event.key in (pygame.K_DOWN, pygame.K_s):
+                self.menu_selected_index = (self.menu_selected_index + 1) % len(self.menu_options)
+            elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                self.activate_menu_option(self.menu_selected_index)
+        elif event.type == pygame.MOUSEMOTION:
+            for index, rect in enumerate(self.menu_option_rects):
+                if rect.collidepoint(event.pos):
+                    self.menu_selected_index = index
+                    break
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for index, rect in enumerate(self.menu_option_rects):
+                if rect.collidepoint(event.pos):
+                    self.activate_menu_option(index)
+                    break
+
+    def activate_menu_option(self, index):
+        if not (0 <= index < len(self.menu_options)):
+            return
+        action = self.menu_options[index]["action"]
+        if action == "play":
+            self.start_game()
+        elif action == "configure":
+            self.open_binding_menu()
+
     def handle_binding_menu_event(self, event):
         if event.type == pygame.KEYDOWN:
             if self.binding_waiting_for_action is not None:
@@ -332,6 +520,49 @@ class Game:
                     self.binding_waiting_for_action = self.binding_options[index]["action"]
                     label = self.action_label(self.binding_waiting_for_action)
                     self.show_binding_message(f"Appuie sur une touche pour {label}")
+                    break
+
+    def handle_pause_menu_event(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self.close_pause_menu()
+            elif event.key in (pygame.K_UP, pygame.K_w):
+                self.pause_selected_index = (self.pause_selected_index - 1) % len(self.pause_menu_options)
+            elif event.key in (pygame.K_DOWN, pygame.K_s):
+                self.pause_selected_index = (self.pause_selected_index + 1) % len(self.pause_menu_options)
+            elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                self.activate_pause_option(self.pause_selected_index)
+        elif event.type == pygame.MOUSEMOTION:
+            for index, rect in enumerate(self.pause_option_rects):
+                if rect.collidepoint(event.pos):
+                    self.pause_selected_index = index
+                    break
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for index, rect in enumerate(self.pause_option_rects):
+                if rect.collidepoint(event.pos):
+                    self.pause_selected_index = index
+                    self.activate_pause_option(index)
+                    break
+
+    def handle_death_menu_event(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key in (pygame.K_ESCAPE, pygame.K_q):
+                self.activate_death_option(1)
+            elif event.key in (pygame.K_UP, pygame.K_w):
+                self.death_selected_index = (self.death_selected_index - 1) % len(self.death_menu_options)
+            elif event.key in (pygame.K_DOWN, pygame.K_s):
+                self.death_selected_index = (self.death_selected_index + 1) % len(self.death_menu_options)
+            elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                self.activate_death_option(self.death_selected_index)
+        elif event.type == pygame.MOUSEMOTION:
+            for index, rect in enumerate(self.death_option_rects):
+                if rect.collidepoint(event.pos):
+                    self.death_selected_index = index
+                    break
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for index, rect in enumerate(self.death_option_rects):
+                if rect.collidepoint(event.pos):
+                    self.activate_death_option(index)
                     break
 
     def _upgrade_max_health(self):
@@ -375,7 +606,7 @@ class Game:
     def handle_upgrade_event(self, event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
-                self.running = False
+                self.open_pause_menu()
             elif event.key in (pygame.K_UP, pygame.K_w):
                 self.upgrade_selected_index = (self.upgrade_selected_index - 1) % len(self.upgrade_choices)
             elif event.key in (pygame.K_DOWN, pygame.K_s):
@@ -453,6 +684,139 @@ class Game:
 
         self.upgrade_option_rects = option_rects
 
+    def draw_pause_menu(self):
+        overlay = pygame.Surface(SCREEN_SIZE, pygame.SRCALPHA)
+        overlay.fill((10, 12, 22, 200))
+        self.screen.blit(overlay, (0, 0))
+
+        center_x = SCREEN_SIZE[0] // 2
+        center_y = SCREEN_SIZE[1] // 2
+
+        title_surface = self.menu_title_font.render("Pause", True, (240, 240, 240))
+        title_rect = title_surface.get_rect(center=(center_x, center_y - 180))
+        self.screen.blit(title_surface, title_rect)
+
+        instruction = "Entrée pour valider · Échap pour reprendre"
+        instruction_surface = self.upgrade_description_font.render(instruction, True, (200, 200, 200))
+        instruction_rect = instruction_surface.get_rect(center=(center_x, center_y + 200))
+        self.screen.blit(instruction_surface, instruction_rect)
+
+        box_width = 400
+        box_height = 62
+        spacing = 14
+        total_height = len(self.pause_menu_options) * box_height + (len(self.pause_menu_options) - 1) * spacing
+        start_y = center_y - total_height // 2
+
+        option_rects = []
+        for index, option in enumerate(self.pause_menu_options):
+            rect = pygame.Rect(0, 0, box_width, box_height)
+            rect.centerx = center_x
+            rect.y = start_y + index * (box_height + spacing)
+
+            is_selected = index == self.pause_selected_index
+            base_color = (52, 56, 78) if is_selected else (34, 36, 52)
+            border_color = (150, 170, 240) if is_selected else (84, 92, 132)
+
+            pygame.draw.rect(self.screen, base_color, rect, border_radius=10)
+            pygame.draw.rect(self.screen, border_color, rect, width=2, border_radius=10)
+
+            label_surface = self.upgrade_option_font.render(option["label"], True, (240, 240, 240))
+            label_rect = label_surface.get_rect(center=rect.center)
+            self.screen.blit(label_surface, label_rect)
+
+            option_rects.append(rect)
+
+        self.pause_option_rects = option_rects
+
+    def draw_death_menu(self):
+        overlay = pygame.Surface(SCREEN_SIZE, pygame.SRCALPHA)
+        overlay.fill((22, 8, 12, 220))
+        self.screen.blit(overlay, (0, 0))
+
+        center_x = SCREEN_SIZE[0] // 2
+        center_y = SCREEN_SIZE[1] // 2
+
+        title_surface = self.menu_title_font.render("Tu es tombé", True, (250, 220, 220))
+        title_rect = title_surface.get_rect(center=(center_x, center_y - 190))
+        self.screen.blit(title_surface, title_rect)
+
+        wave_text = f"Vague atteinte : {self.wave}"
+        wave_surface = self.upgrade_option_font.render(wave_text, True, (230, 210, 210))
+        wave_rect = wave_surface.get_rect(center=(center_x, title_rect.bottom + 40))
+        self.screen.blit(wave_surface, wave_rect)
+
+        instruction = "Entrée pour valider · Échap pour retourner au menu"
+        instruction_surface = self.upgrade_description_font.render(instruction, True, (210, 200, 200))
+        instruction_rect = instruction_surface.get_rect(center=(center_x, center_y + 210))
+        self.screen.blit(instruction_surface, instruction_rect)
+
+        box_width = 420
+        box_height = 64
+        spacing = 16
+        total_height = len(self.death_menu_options) * box_height + (len(self.death_menu_options) - 1) * spacing
+        start_y = center_y - total_height // 2
+
+        option_rects = []
+        for index, option in enumerate(self.death_menu_options):
+            rect = pygame.Rect(0, 0, box_width, box_height)
+            rect.centerx = center_x
+            rect.y = start_y + index * (box_height + spacing)
+
+            is_selected = index == self.death_selected_index
+            base_color = (80, 36, 44) if is_selected else (48, 22, 28)
+            border_color = (220, 140, 150) if is_selected else (120, 70, 80)
+
+            pygame.draw.rect(self.screen, base_color, rect, border_radius=12)
+            pygame.draw.rect(self.screen, border_color, rect, width=2, border_radius=12)
+
+            label_surface = self.upgrade_option_font.render(option["label"], True, (250, 236, 236))
+            label_rect = label_surface.get_rect(center=rect.center)
+            self.screen.blit(label_surface, label_rect)
+
+            option_rects.append(rect)
+
+        self.death_option_rects = option_rects
+
+    def draw_menu(self):
+        center_x = SCREEN_SIZE[0] // 2
+        center_y = SCREEN_SIZE[1] // 2
+
+        title_surface = self.menu_title_font.render("adhess", True, (240, 240, 240))
+        title_rect = title_surface.get_rect(center=(center_x, center_y - 200))
+        self.screen.blit(title_surface, title_rect)
+
+        instruction_text = "Entrée pour valider · Échap pour quitter"
+        instruction_surface = self.upgrade_description_font.render(instruction_text, True, (200, 200, 200))
+        instruction_rect = instruction_surface.get_rect(center=(center_x, center_y + 200))
+        self.screen.blit(instruction_surface, instruction_rect)
+
+        box_width = 480
+        box_height = 64
+        spacing = 16
+        total_height = len(self.menu_options) * box_height + (len(self.menu_options) - 1) * spacing
+        start_y = center_y - total_height // 2
+
+        option_rects = []
+        for index, option in enumerate(self.menu_options):
+            rect = pygame.Rect(0, 0, box_width, box_height)
+            rect.centerx = center_x
+            rect.y = start_y + index * (box_height + spacing)
+
+            is_selected = index == self.menu_selected_index
+            base_color = (46, 50, 74) if is_selected else (28, 30, 44)
+            border_color = (150, 170, 240) if is_selected else (78, 86, 128)
+
+            pygame.draw.rect(self.screen, base_color, rect, border_radius=12)
+            pygame.draw.rect(self.screen, border_color, rect, width=2, border_radius=12)
+
+            label_surface = self.upgrade_option_font.render(option["label"], True, (240, 240, 240))
+            label_rect = label_surface.get_rect(center=rect.center)
+            self.screen.blit(label_surface, label_rect)
+
+            option_rects.append(rect)
+
+        self.menu_option_rects = option_rects
+
     def draw_binding_menu(self):
         overlay = pygame.Surface(SCREEN_SIZE, pygame.SRCALPHA)
         overlay.fill((8, 10, 18, 220))
@@ -524,15 +888,24 @@ class Game:
             if event.type == pygame.QUIT:
                 self.running = False
                 continue
+            if self.death_menu_active:
+                self.handle_death_menu_event(event)
+                continue
             if self.binding_menu_active:
                 self.handle_binding_menu_event(event)
+                continue
+            if self.pause_menu_active:
+                self.handle_pause_menu_event(event)
+                continue
+            if self.state == "menu":
+                self.handle_menu_event(event)
                 continue
             if self.upgrade_popup_active:
                 self.handle_upgrade_event(event)
                 continue
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    self.running = False
+                    self.open_pause_menu()
                 elif event.key == self.binding_menu_key:
                     self.open_binding_menu()
                 elif event.key in self.get_bound_keys("attack"):
@@ -565,6 +938,10 @@ class Game:
     def update(self, dt):
         if self.binding_info_timer > 0.0:
             self.binding_info_timer = max(0.0, self.binding_info_timer - dt)
+        if self.pause_info_timer > 0.0:
+            self.pause_info_timer = max(0.0, self.pause_info_timer - dt)
+            if self.pause_info_timer <= 0.0:
+                self.pause_info_message = ""
 
         if self.binding_menu_active:
             self.player.animations.play("idle")
@@ -575,6 +952,39 @@ class Game:
                 effect["life"] = max(0.0, effect["life"] - dt)
             self.dash_effects = [effect for effect in self.dash_effects if effect["life"] > 0]
             self.camera = self.player.position - SCREEN_CENTER
+            return
+
+        if self.death_menu_active:
+            self.player.animations.play("idle")
+            self.player.animations.update(dt)
+            self.player.damage_flash = max(0.0, self.player.damage_flash - dt)
+            self.dash_effect_timer = 0.0
+            for effect in self.dash_effects:
+                effect["life"] = max(0.0, effect["life"] - dt)
+            self.dash_effects = [effect for effect in self.dash_effects if effect["life"] > 0]
+            self.camera = self.player.position - SCREEN_CENTER
+            return
+
+        if self.pause_menu_active:
+            self.player.animations.play("idle")
+            self.player.animations.update(dt)
+            self.player.damage_flash = max(0.0, self.player.damage_flash - dt)
+            self.dash_effect_timer = 0.0
+            for effect in self.dash_effects:
+                effect["life"] = max(0.0, effect["life"] - dt)
+            self.dash_effects = [effect for effect in self.dash_effects if effect["life"] > 0]
+            self.camera = self.player.position - SCREEN_CENTER
+            return
+
+        if self.state == "menu":
+            self.player.animations.play("idle")
+            self.player.animations.update(dt)
+            self.player.damage_flash = max(0.0, self.player.damage_flash - dt)
+            self.dash_effect_timer = 0.0
+            for effect in self.dash_effects:
+                effect["life"] = max(0.0, effect["life"] - dt)
+            self.dash_effects = [effect for effect in self.dash_effects if effect["life"] > 0]
+            self.camera = pygame.Vector2()
             return
 
         if self.upgrade_popup_active:
@@ -620,8 +1030,9 @@ class Game:
             if self.wave_timer <= 0.0:
                 self.start_wave()
 
-        if self.player.health <= 0:
-            self.running = False
+        if self.player.health <= 0 and not self.death_menu_active:
+            self.player.health = 0
+            self.open_death_menu()
 
         self.camera = self.player.position - SCREEN_CENTER
 
@@ -687,14 +1098,24 @@ class Game:
 
     def draw(self):
         self.screen.fill(BACKGROUND_COLOR)
+        if self.state == "menu":
+            self.draw_menu()
+            if self.binding_menu_active:
+                self.draw_binding_menu()
+            pygame.display.flip()
+            return
         self.draw_enemies()
         self.draw_dash_effects()
         self.draw_player()
         self.draw_ui()
         if self.binding_menu_active:
             self.draw_binding_menu()
-        if self.upgrade_popup_active:
+        if self.death_menu_active:
+            self.draw_death_menu()
+        if self.upgrade_popup_active and not self.pause_menu_active:
             self.draw_upgrade_overlay()
+        if self.pause_menu_active:
+            self.draw_pause_menu()
         pygame.display.flip()
 
     def run(self):

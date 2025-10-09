@@ -103,6 +103,18 @@ class Game:
         self.all_upgrades = self.build_upgrade_choices()
         self.upgrade_choices = []
 
+        self.key_bindings = self.build_default_key_bindings()
+        self.fixed_key_bindings = self.build_fixed_key_bindings()
+        self.binding_menu_key = pygame.K_m
+        self.binding_menu_active = False
+        self.binding_selected_index = 0
+        self.binding_waiting_for_action = None
+        self.binding_option_rects = []
+        self.binding_info_message = ""
+        self.binding_info_timer = 0.0
+        self.binding_info_duration = 2.0
+        self.binding_options = self.build_binding_options()
+
         self.start_wave()
 
     def clone_enemy_animation(self):
@@ -174,6 +186,153 @@ class Game:
                 "apply": self._upgrade_dash_cooldown,
             },
         ]
+
+    def build_default_key_bindings(self):
+        return {
+            "move_up": [pygame.K_w],
+            "move_down": [pygame.K_s],
+            "move_left": [pygame.K_a],
+            "move_right": [pygame.K_d],
+            "attack": [pygame.K_j],
+        }
+
+    def build_fixed_key_bindings(self):
+        return {
+            "move_up": [pygame.K_UP],
+            "move_down": [pygame.K_DOWN],
+            "move_left": [pygame.K_LEFT],
+            "move_right": [pygame.K_RIGHT],
+            "attack": [],
+        }
+
+    def build_binding_options(self):
+        return [
+            {"action": "move_up", "label": "Aller vers le haut"},
+            {"action": "move_down", "label": "Aller vers le bas"},
+            {"action": "move_left", "label": "Aller vers la gauche"},
+            {"action": "move_right", "label": "Aller vers la droite"},
+            {"action": "attack", "label": "Attaquer"},
+        ]
+
+    def get_bound_keys(self, action):
+        primary = self.key_bindings.get(action, [])
+        extras = self.fixed_key_bindings.get(action, [])
+        combined = []
+        seen = set()
+        for key in primary + extras:
+            if key not in seen:
+                seen.add(key)
+                combined.append(key)
+        return combined
+
+    def is_action_pressed(self, action, pressed):
+        for key in self.get_bound_keys(action):
+            if key >= 0 and pressed[key]:
+                return True
+        return False
+
+    def compute_move_vector(self, pressed):
+        move = pygame.Vector2(0, 0)
+        if self.is_action_pressed("move_left", pressed):
+            move.x -= 1
+        if self.is_action_pressed("move_right", pressed):
+            move.x += 1
+        if self.is_action_pressed("move_up", pressed):
+            move.y -= 1
+        if self.is_action_pressed("move_down", pressed):
+            move.y += 1
+        return move
+
+    def set_binding(self, action, key):
+        for other_action, keys in self.key_bindings.items():
+            if other_action != action:
+                self.key_bindings[other_action] = [existing for existing in keys if existing != key]
+        self.key_bindings[action] = [key] if key is not None else []
+        label = self.action_label(action)
+        key_name = self.format_key_name(key) if key is not None else "Aucune"
+        self.show_binding_message(f"{label} → {key_name}")
+
+    def show_binding_message(self, message):
+        self.binding_info_message = message
+        self.binding_info_timer = self.binding_info_duration
+
+    def action_label(self, action):
+        for option in self.binding_options:
+            if option["action"] == action:
+                return option["label"]
+        return action
+
+    def format_key_name(self, key):
+        if key is None:
+            return "-"
+        name = pygame.key.name(key)
+        return name.upper() if name else f"Code {key}"
+
+    def format_binding_display(self, action):
+        primary = [self.format_key_name(key) for key in self.key_bindings.get(action, [])]
+        extras = [self.format_key_name(key) for key in self.fixed_key_bindings.get(action, [])]
+        parts = primary
+        if extras:
+            parts = parts + [f"({value})" for value in extras]
+        if not parts:
+            return "Aucune"
+        return " · ".join(parts)
+
+    def open_binding_menu(self):
+        if self.binding_menu_active:
+            return
+        self.binding_menu_active = True
+        self.binding_selected_index = 0
+        self.binding_waiting_for_action = None
+        self.binding_option_rects = []
+        self.show_binding_message("Sélectionne une action à modifier")
+
+    def close_binding_menu(self):
+        self.binding_menu_active = False
+        self.binding_waiting_for_action = None
+        self.binding_option_rects = []
+
+    def handle_binding_menu_event(self, event):
+        if event.type == pygame.KEYDOWN:
+            if self.binding_waiting_for_action is not None:
+                if event.key == pygame.K_ESCAPE:
+                    self.binding_waiting_for_action = None
+                    self.show_binding_message("Assignation annulée")
+                else:
+                    action = self.binding_waiting_for_action
+                    self.set_binding(action, event.key)
+                    self.binding_waiting_for_action = None
+                return
+
+            if event.key == pygame.K_ESCAPE:
+                self.close_binding_menu()
+            elif event.key == self.binding_menu_key:
+                self.close_binding_menu()
+            elif event.key in (pygame.K_UP, pygame.K_w):
+                self.binding_selected_index = (self.binding_selected_index - 1) % len(self.binding_options)
+            elif event.key in (pygame.K_DOWN, pygame.K_s):
+                self.binding_selected_index = (self.binding_selected_index + 1) % len(self.binding_options)
+            elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                self.binding_waiting_for_action = self.binding_options[self.binding_selected_index]["action"]
+                label = self.action_label(self.binding_waiting_for_action)
+                self.show_binding_message(f"Appuie sur une touche pour {label}")
+        elif event.type == pygame.MOUSEMOTION:
+            for index, rect in enumerate(self.binding_option_rects):
+                if rect.collidepoint(event.pos):
+                    self.binding_selected_index = index
+                    break
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.binding_waiting_for_action is not None:
+                self.binding_waiting_for_action = None
+                self.show_binding_message("Assignation annulée")
+                return
+            for index, rect in enumerate(self.binding_option_rects):
+                if rect.collidepoint(event.pos):
+                    self.binding_selected_index = index
+                    self.binding_waiting_for_action = self.binding_options[index]["action"]
+                    label = self.action_label(self.binding_waiting_for_action)
+                    self.show_binding_message(f"Appuie sur une touche pour {label}")
+                    break
 
     def _upgrade_max_health(self):
         bonus = max(10, int(self.player.max_health * 0.2))
@@ -294,10 +453,79 @@ class Game:
 
         self.upgrade_option_rects = option_rects
 
+    def draw_binding_menu(self):
+        overlay = pygame.Surface(SCREEN_SIZE, pygame.SRCALPHA)
+        overlay.fill((8, 10, 18, 220))
+        self.screen.blit(overlay, (0, 0))
+
+        center_x = SCREEN_SIZE[0] // 2
+        center_y = SCREEN_SIZE[1] // 2
+
+        title = "Configuration des touches"
+        title_surface = self.upgrade_title_font.render(title, True, (240, 240, 240))
+        title_rect = title_surface.get_rect(center=(center_x, center_y - 200))
+        self.screen.blit(title_surface, title_rect)
+
+        waiting = self.binding_waiting_for_action is not None
+        if waiting:
+            instruction_text = "Appuie sur la nouvelle touche · Échap pour annuler"
+        else:
+            toggle_name = self.format_key_name(self.binding_menu_key)
+            instruction_text = f"Entrée/Espace pour modifier · {toggle_name} ou Échap pour fermer"
+        instruction_surface = self.upgrade_description_font.render(instruction_text, True, (200, 200, 200))
+        instruction_rect = instruction_surface.get_rect(center=(center_x, center_y + 200))
+        self.screen.blit(instruction_surface, instruction_rect)
+
+        if self.binding_info_timer > 0.0 and self.binding_info_message:
+            info_surface = self.upgrade_option_font.render(self.binding_info_message, True, (220, 220, 220))
+            info_rect = info_surface.get_rect(center=(center_x, title_rect.bottom + 30))
+            self.screen.blit(info_surface, info_rect)
+
+        box_width = 560
+        box_height = 58
+        spacing = 14
+        total_height = len(self.binding_options) * box_height + (len(self.binding_options) - 1) * spacing
+        start_y = center_y - total_height // 2
+
+        option_rects = []
+        for index, option in enumerate(self.binding_options):
+            rect = pygame.Rect(0, 0, box_width, box_height)
+            rect.centerx = center_x
+            rect.y = start_y + index * (box_height + spacing)
+
+            is_selected = index == self.binding_selected_index
+            is_waiting = waiting and option["action"] == self.binding_waiting_for_action
+            base_color = (52, 56, 78) if is_selected else (30, 32, 44)
+            border_color = (150, 170, 240) if is_selected else (76, 84, 120)
+            if is_waiting:
+                base_color = (70, 58, 40)
+                border_color = (220, 180, 120)
+
+            pygame.draw.rect(self.screen, base_color, rect, border_radius=10)
+            pygame.draw.rect(self.screen, border_color, rect, width=2, border_radius=10)
+
+            label_surface = self.upgrade_option_font.render(option["label"], True, (240, 240, 240))
+            label_rect = label_surface.get_rect()
+            label_rect.midleft = (rect.x + 20, rect.centery)
+            self.screen.blit(label_surface, label_rect)
+
+            binding_text = self.format_binding_display(option["action"])
+            binding_surface = self.upgrade_description_font.render(binding_text, True, (210, 210, 210))
+            binding_rect = binding_surface.get_rect()
+            binding_rect.midright = (rect.right - 20, rect.centery)
+            self.screen.blit(binding_surface, binding_rect)
+
+            option_rects.append(rect)
+
+        self.binding_option_rects = option_rects
+
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+                continue
+            if self.binding_menu_active:
+                self.handle_binding_menu_event(event)
                 continue
             if self.upgrade_popup_active:
                 self.handle_upgrade_event(event)
@@ -305,6 +533,11 @@ class Game:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
+                elif event.key == self.binding_menu_key:
+                    self.open_binding_menu()
+                elif event.key in self.get_bound_keys("attack"):
+                    if self.player.start_attack():
+                        self.apply_player_attack()
                 elif event.key in (pygame.K_SPACE, pygame.K_LSHIFT, pygame.K_RSHIFT):
                     if self.player.try_dash():
                         self.add_dash_effect()
@@ -330,6 +563,20 @@ class Game:
                 enemy.take_damage(self.player.attack_damage)
 
     def update(self, dt):
+        if self.binding_info_timer > 0.0:
+            self.binding_info_timer = max(0.0, self.binding_info_timer - dt)
+
+        if self.binding_menu_active:
+            self.player.animations.play("idle")
+            self.player.animations.update(dt)
+            self.player.damage_flash = max(0.0, self.player.damage_flash - dt)
+            self.dash_effect_timer = 0.0
+            for effect in self.dash_effects:
+                effect["life"] = max(0.0, effect["life"] - dt)
+            self.dash_effects = [effect for effect in self.dash_effects if effect["life"] > 0]
+            self.camera = self.player.position - SCREEN_CENTER
+            return
+
         if self.upgrade_popup_active:
             self.player.animations.play("idle")
             self.player.animations.update(dt)
@@ -342,7 +589,8 @@ class Game:
             return
 
         pressed = pygame.key.get_pressed()
-        self.player.update(dt, pressed)
+        move_vector = self.compute_move_vector(pressed)
+        self.player.update(dt, move_vector)
 
         if self.player.dash_timer > 0:
             self.dash_effect_timer -= dt
@@ -432,6 +680,7 @@ class Game:
                 lines.append("Amélioration disponible !")
             else:
                 lines.append(f"Prochaine vague dans {self.wave_timer:.1f}s")
+        lines.append(f"{self.format_key_name(self.binding_menu_key)}: configurer les touches")
         for index, text in enumerate(lines):
             surface = self.font.render(text, True, (230, 230, 230))
             self.screen.blit(surface, (20, 20 + index * 22))
@@ -442,6 +691,8 @@ class Game:
         self.draw_dash_effects()
         self.draw_player()
         self.draw_ui()
+        if self.binding_menu_active:
+            self.draw_binding_menu()
         if self.upgrade_popup_active:
             self.draw_upgrade_overlay()
         pygame.display.flip()

@@ -64,17 +64,8 @@ class Player:
     def heal(self, amount):
         self.health = min(self.max_health, self.health + amount)
 
-    def update(self, dt, pressed):
-        move = pygame.Vector2(0, 0)
-        if pressed[pygame.K_a] or pressed[pygame.K_LEFT]:
-            move.x -= 1
-        if pressed[pygame.K_d] or pressed[pygame.K_RIGHT]:
-            move.x += 1
-        if pressed[pygame.K_w] or pressed[pygame.K_UP]:
-            move.y -= 1
-        if pressed[pygame.K_s] or pressed[pygame.K_DOWN]:
-            move.y += 1
-
+    def update(self, dt, move_input):
+        move = pygame.Vector2(move_input)
         moving = move.length_squared() > 0
         if moving:
             move = move.normalize()

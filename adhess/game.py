@@ -833,7 +833,7 @@ class Game:
         center_x = SCREEN_SIZE[0] // 2
         center_y = SCREEN_SIZE[1] // 2
 
-        title_surface = self.menu_title_font.render("Tu es tombé", True, (250, 220, 220))
+        title_surface = self.menu_title_font.render("Tu es mort", True, (250, 220, 220))
         title_rect = title_surface.get_rect(center=(center_x, center_y - 190))
         self.screen.blit(title_surface, title_rect)
 
